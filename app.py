@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
 st.title("IT 자산 위험도 스코어링 앱")
-
-st.write("자산/솔루션 군을 선택하면 위험도 점수와 그래프를 보여줍니다.")
 
 risk_scores = {
     "보안 솔루션": 10,
@@ -24,19 +23,26 @@ st.subheader("선택 결과")
 st.write(f"선택한 자산/솔루션 군: **{selected_asset}**")
 st.write(f"위험도 점수: **{score}점**")
 
-st.subheader("위험도 시각화")
+# ===== 색상 지정 =====
+colors = ["red", "orange", "blue", "green", "purple"]
 
-chart_data = pd.DataFrame({
-    "자산/솔루션 군": list(risk_scores.keys()),
-    "위험도 점수": list(risk_scores.values())
-}).set_index("자산/솔루션 군")
+# ===== 데이터 =====
+assets = list(risk_scores.keys())
+scores = list(risk_scores.values())
 
-st.bar_chart(chart_data)
+# ===== 그래프 생성 =====
+fig, ax = plt.subplots()
 
-st.subheader("선택 항목 강조")
-selected_data = pd.DataFrame({
-    "항목": [selected_asset],
-    "위험도 점수": [score]
-}).set_index("항목")
+ax.bar(assets, scores, color=colors)
 
-st.bar_chart(selected_data)
+ax.set_ylabel("위험도 점수")
+ax.set_title("자산별 위험도 비교")
+
+# 선택 항목 강조 (테두리)
+for i, asset in enumerate(assets):
+    if asset == selected_asset:
+        ax.bar(assets[i], scores[i], color=colors[i], edgecolor='black', linewidth=3)
+
+plt.xticks(rotation=30)
+
+st.pyplot(fig)
