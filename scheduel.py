@@ -77,10 +77,8 @@ def delete_tasks_by_date(selected_date_str):
 
 
 def overwrite_tasks_to_supabase(selected_date_str, tasks):
-    # 1. 기존 날짜 데이터 삭제
     delete_tasks_by_date(selected_date_str)
 
-    # 2. 현재 입력 데이터 재저장
     if tasks:
         url = f"{SUPABASE_URL}/rest/v1/study_tasks"
         response = requests.post(
@@ -171,10 +169,10 @@ html, body, [class*="css"] {
 
 .main-title {
     text-align: center;
-    font-size: 38px;
+    font-size: 40px;
     font-weight: 900;
-    margin-top: 8px;
-    margin-bottom: 6px;
+    margin-top: 16px;
+    margin-bottom: 8px;
     color: #f5f3ff;
     text-shadow: 0 0 12px rgba(147, 51, 234, 0.7);
 }
@@ -281,8 +279,6 @@ label, .stMarkdown, .stText, p {
 </style>
 """, unsafe_allow_html=True)
 
-st.image("banner.png", use_container_width=True)
-
 st.markdown('<div class="main-title">임상욱 일일 스케쥴러</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-title">오늘의 임무를 배치하고, 주술 에너지를 100%까지 채워보자.</div>',
@@ -291,7 +287,6 @@ st.markdown(
 
 selected_date = st.date_input("작전 날짜를 선택하세요", value=date.today())
 
-# 월별 누적 보상 (최종 저장본 기준)
 try:
     month_rows = load_month_tasks_from_supabase(selected_date)
     monthly_reward, completed_days = calculate_monthly_reward(month_rows)
