@@ -3,7 +3,10 @@ import pandas as pd
 from datetime import date
 import requests
 
-st.set_page_config(page_title="임상욱 일일 스케쥴러", layout="wide")
+st.set_page_config(
+    page_title="임상욱 일일 스케쥴러",
+    layout="wide"
+)
 
 reward_amount = 5000
 
@@ -17,12 +20,20 @@ def format_hour(hour: int) -> str:
     return "24:00" if hour == 24 else f"{hour:02d}:00"
 
 
+def priority_label(priority: str) -> str:
+    if priority == "상":
+        return "특급 임무"
+    elif priority == "중":
+        return "1급 임무"
+    return "보조 임무"
+
+
 def priority_icon(priority: str) -> str:
     if priority == "상":
-        return "🔴"
+        return "🔥"
     elif priority == "중":
-        return "🟡"
-    return "🟢"
+        return "⚡"
+    return "✨"
 
 
 def supabase_headers():
@@ -62,15 +73,160 @@ def load_tasks_from_supabase(selected_date_str):
     return response.json()
 
 
-st.title("임상욱 일일 스케쥴러")
-st.write("날짜별 공부 계획을 입력하고 DB에 누적 저장합니다.")
+st.markdown("""
+<style>
+html, body, [class*="css"] {
+    font-family: "Arial", sans-serif;
+}
 
-selected_date = st.date_input("날짜를 선택하세요", value=date.today())
+.stApp {
+    background: linear-gradient(180deg, #0b1020 0%, #121a33 45%, #0f172a 100%);
+    color: #f8fafc;
+}
 
-st.subheader(f"{selected_date} 오늘의 할 일 입력")
+.main-title {
+    text-align: center;
+    font-size: 42px;
+    font-weight: 900;
+    margin-top: 10px;
+    margin-bottom: 8px;
+    color: #f5f3ff;
+    text-shadow: 0 0 12px rgba(147, 51, 234, 0.7);
+}
+
+.sub-title {
+    text-align: center;
+    font-size: 18px;
+    color: #cbd5e1;
+    margin-bottom: 20px;
+}
+
+.hero-box {
+    background: linear-gradient(135deg, rgba(88,28,135,0.95), rgba(30,41,59,0.95));
+    border: 1px solid rgba(168,85,247,0.45);
+    border-radius: 20px;
+    padding: 22px;
+    box-shadow: 0 0 22px rgba(168,85,247,0.18);
+    margin-bottom: 20px;
+}
+
+.reward-box {
+    background: linear-gradient(135deg, #1e1b4b, #6d28d9);
+    border-radius: 18px;
+    padding: 18px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 0 18px rgba(124,58,237,0.35);
+    margin-bottom: 14px;
+}
+
+.section-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: #e9d5ff;
+    margin-top: 8px;
+    margin-bottom: 12px;
+}
+
+.card-box {
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(96,165,250,0.22);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 14px rgba(59,130,246,0.08);
+    margin-bottom: 16px;
+}
+
+.metric-box {
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid rgba(168,85,247,0.28);
+    border-radius: 16px;
+    padding: 14px;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.metric-title {
+    font-size: 14px;
+    color: #cbd5e1;
+}
+
+.metric-value {
+    font-size: 28px;
+    font-weight: 900;
+    color: #f8fafc;
+    margin-top: 4px;
+}
+
+div.stButton > button {
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid rgba(168,85,247,0.45);
+    background: linear-gradient(90deg, #4c1d95, #7c3aed);
+    color: white;
+    font-weight: 800;
+    box-shadow: 0 0 14px rgba(124,58,237,0.25);
+}
+
+div.stButton > button:hover {
+    border: 1px solid #c084fc;
+    background: linear-gradient(90deg, #5b21b6, #8b5cf6);
+    color: white;
+}
+
+div[data-testid="stDataFrame"] {
+    background: rgba(15, 23, 42, 0.85);
+    border-radius: 14px;
+    padding: 6px;
+}
+
+[data-testid="stMetricValue"] {
+    color: #f8fafc;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #cbd5e1;
+}
+
+.stProgress > div > div > div > div {
+    background: linear-gradient(90deg, #22d3ee, #8b5cf6) !important;
+}
+
+label, .stMarkdown, .stText, p {
+    color: #e2e8f0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-title">임상욱 일일 스케쥴러</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="sub-title">오늘의 임무를 배치하고, 주술 에너지를 100%까지 채워보자.</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    f"""
+    <div class="hero-box">
+        <div style="font-size:20px; font-weight:800; color:#f5f3ff; margin-bottom:8px;">
+            ⚔️ 오늘의 미션 브리핑
+        </div>
+        <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
+            시간대별로 임무를 설정하고, 완료 체크를 하면서 하루 학습 흐름을 관리할 수 있어.
+            모든 임무를 완수하면 <b>임무 보상 {reward_amount:,}원</b>이 활성화돼.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+selected_date = st.date_input("작전 날짜를 선택하세요", value=date.today())
+
+st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', unsafe_allow_html=True)
 
 task_count = st.number_input(
-    "오늘 등록할 태스크 개수",
+    "오늘 등록할 임무 개수",
     min_value=1,
     max_value=15,
     value=5,
@@ -80,42 +236,45 @@ task_count = st.number_input(
 tasks_data = []
 
 for i in range(int(task_count)):
-    st.markdown(f"### 태스크 {i+1}")
-    col1, col2, col3, col4, col5 = st.columns([4, 1.2, 1.2, 1.2, 1])
+    st.markdown(f"#### 임무 {i+1}")
 
-    with col1:
-        task_name = st.text_input(
-            f"할 일 내용 {i+1}",
-            placeholder="예: 고등 물리 숙제 완료하기",
-            key=f"task_name_{i}"
-        )
+    with st.container():
+        col1, col2, col3, col4, col5 = st.columns([4, 1.2, 1.2, 1.4, 1])
 
-    with col2:
-        start_hour = st.selectbox(
-            f"시작 시간 {i+1}",
-            time_options[:-1],
-            format_func=format_hour,
-            key=f"start_hour_{i}"
-        )
+        with col1:
+            task_name = st.text_input(
+                f"임무 내용 {i+1}",
+                placeholder="예: 고등 물리 숙제 완료하기",
+                key=f"task_name_{i}"
+            )
 
-    with col3:
-        valid_end_hours = [h for h in time_options if h > start_hour]
-        end_hour = st.selectbox(
-            f"종료 시간 {i+1}",
-            valid_end_hours,
-            format_func=format_hour,
-            key=f"end_hour_{i}"
-        )
+        with col2:
+            start_hour = st.selectbox(
+                f"시작 {i+1}",
+                time_options[:-1],
+                format_func=format_hour,
+                key=f"start_hour_{i}"
+            )
 
-    with col4:
-        priority = st.selectbox(
-            f"중요도 {i+1}",
-            ["상", "중", "하"],
-            key=f"priority_{i}"
-        )
+        with col3:
+            valid_end_hours = [h for h in time_options if h > start_hour]
+            end_hour = st.selectbox(
+                f"종료 {i+1}",
+                valid_end_hours,
+                format_func=format_hour,
+                key=f"end_hour_{i}"
+            )
 
-    with col5:
-        completed = st.checkbox("완료", key=f"completed_{i}")
+        with col4:
+            priority = st.selectbox(
+                f"등급 {i+1}",
+                ["상", "중", "하"],
+                format_func=priority_label,
+                key=f"priority_{i}"
+            )
+
+        with col5:
+            completed = st.checkbox("완료", key=f"completed_{i}")
 
     if task_name.strip():
         tasks_data.append({
@@ -128,15 +287,16 @@ for i in range(int(task_count)):
         })
 
 st.markdown("---")
-st.subheader("입력 요약")
+st.markdown('<div class="section-title">🌀 오늘의 임무 요약</div>', unsafe_allow_html=True)
 
 if tasks_data:
     input_df = pd.DataFrame(tasks_data)
     view_df = input_df.copy()
     view_df["시간"] = view_df["start_hour"].apply(format_hour) + " ~ " + view_df["end_hour"].apply(format_hour)
-    view_df["완료 여부"] = view_df["completed"].apply(lambda x: "완료" if x else "미완료")
-    view_df = view_df[["study_date", "시간", "task_name", "priority", "완료 여부"]]
-    view_df.columns = ["날짜", "시간", "할 일", "중요도", "완료 여부"]
+    view_df["등급"] = view_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
+    view_df["완료 여부"] = view_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
+    view_df = view_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
+    view_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
 
     st.dataframe(view_df, use_container_width=True, hide_index=True)
 
@@ -146,47 +306,127 @@ if tasks_data:
     completion_rate = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("총 태스크 수", total_tasks)
-    c2.metric("완료한 태스크", completed_tasks)
-    c3.metric("남은 태스크", remaining_tasks)
+    with c1:
+        st.markdown(
+            f"""
+            <div class="metric-box">
+                <div class="metric-title">총 임무 수</div>
+                <div class="metric-value">{total_tasks}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <div class="metric-box">
+                <div class="metric-title">완료한 임무</div>
+                <div class="metric-value">{completed_tasks}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <div class="metric-box">
+                <div class="metric-title">남은 임무</div>
+                <div class="metric-value">{remaining_tasks}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
+    st.markdown('<div class="section-title">⚡ 주술 에너지 충전율</div>', unsafe_allow_html=True)
     st.progress(completion_rate / 100)
-    st.write(f"완료율: **{completion_rate}%**")
+    st.write(f"현재 에너지 충전율: **{completion_rate}%**")
+
+    st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
+
+    schedule_rows = []
+    for hour in range(4, 24):
+        matched_tasks = []
+        for _, row in input_df.iterrows():
+            if row["start_hour"] <= hour < row["end_hour"]:
+                status_icon = "✅" if row["completed"] else "⬜"
+                matched_tasks.append(
+                    f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
+                )
+
+        schedule_rows.append({
+            "시간대": f"{hour:02d}:00 ~ {hour+1:02d}:00",
+            "계획": " / ".join(matched_tasks) if matched_tasks else ""
+        })
+
+    schedule_df = pd.DataFrame(schedule_rows)
+    st.dataframe(schedule_df, use_container_width=True, hide_index=True)
 
     if total_tasks > 0 and completed_tasks == total_tasks:
-        st.success(f"{selected_date} 할 일을 모두 완료했습니다! Reward: {reward_amount:,}원 🎉")
+        st.markdown(
+            f"""
+            <div class="reward-box">
+                🎉 모든 임무 완수!<br>
+                임무 보상 {reward_amount:,}원 획득
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     else:
-        st.info(f"모든 태스크를 완료하면 Reward {reward_amount:,}원이 표시됩니다.")
+        st.info(f"모든 임무를 완료하면 임무 보상 {reward_amount:,}원이 활성화돼.")
 
-    if st.button("DB에 저장"):
-        try:
-            save_tasks_to_supabase(tasks_data)
-            st.success("Supabase DB에 저장되었습니다.")
-        except requests.HTTPError as e:
-            detail = e.response.text if e.response is not None else str(e)
-            st.error(f"저장 중 HTTP 오류가 발생했습니다: {detail}")
-        except Exception as e:
-            st.error(f"저장 중 오류가 발생했습니다: {e}")
+    col_save, col_load = st.columns(2)
+
+    with col_save:
+        if st.button("💾 DB에 저장"):
+            try:
+                url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+                response = requests.post(
+                    url,
+                    headers={**supabase_headers(), "Prefer": "return=representation"},
+                    json=tasks_data,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                st.success("DB에 저장 완료!")
+            except requests.HTTPError as e:
+                detail = e.response.text if e.response is not None else str(e)
+                st.error(f"저장 중 HTTP 오류: {detail}")
+            except Exception as e:
+                st.error(f"저장 중 오류: {e}")
+
+    with col_load:
+        if st.button("📂 저장된 데이터 불러오기"):
+            try:
+                url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+                params = {
+                    "study_date": f"eq.{str(selected_date)}",
+                    "select": "*",
+                    "order": "start_hour.asc",
+                }
+                response = requests.get(
+                    url,
+                    headers=supabase_headers(),
+                    params=params,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                rows = response.json()
+
+                if rows:
+                    saved_df = pd.DataFrame(rows)
+                    saved_df["시간"] = saved_df["start_hour"].apply(format_hour) + " ~ " + saved_df["end_hour"].apply(format_hour)
+                    saved_df["등급"] = saved_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
+                    saved_df["완료 여부"] = saved_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
+                    saved_df = saved_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
+                    saved_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
+                    st.dataframe(saved_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("해당 날짜에 저장된 데이터가 없어.")
+            except requests.HTTPError as e:
+                detail = e.response.text if e.response is not None else str(e)
+                st.error(f"조회 중 HTTP 오류: {detail}")
+            except Exception as e:
+                st.error(f"조회 중 오류: {e}")
+
 else:
-    st.warning("할 일을 하나 이상 입력해 주세요.")
-
-st.markdown("---")
-st.subheader("선택 날짜 저장 내역 조회")
-
-if st.button("저장된 데이터 불러오기"):
-    try:
-        rows = load_tasks_from_supabase(str(selected_date))
-        if rows:
-            saved_df = pd.DataFrame(rows)
-            saved_df["시간"] = saved_df["start_hour"].apply(format_hour) + " ~ " + saved_df["end_hour"].apply(format_hour)
-            saved_df["완료 여부"] = saved_df["completed"].apply(lambda x: "완료" if x else "미완료")
-            saved_df = saved_df[["study_date", "시간", "task_name", "priority", "완료 여부"]]
-            saved_df.columns = ["날짜", "시간", "할 일", "중요도", "완료 여부"]
-            st.dataframe(saved_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("해당 날짜에 저장된 데이터가 없습니다.")
-    except requests.HTTPError as e:
-        detail = e.response.text if e.response is not None else str(e)
-        st.error(f"조회 중 HTTP 오류가 발생했습니다: {detail}")
-    except Exception as e:
-        st.error(f"조회 중 오류가 발생했습니다: {e}")
+    st.warning("임무를 하나 이상 입력해줘.")
