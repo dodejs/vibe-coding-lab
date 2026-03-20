@@ -1,24 +1,21 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from supabase import create_client, Client
+import requests
 
 st.set_page_config(page_title="임상욱 일일 스케쥴러", layout="wide")
 
 reward_amount = 5000
 
-@st.cache_resource
-def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
-
-supabase = init_supabase()
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 time_options = list(range(4, 25))
 
+
 def format_hour(hour: int) -> str:
     return "24:00" if hour == 24 else f"{hour:02d}:00"
+
 
 def priority_icon(priority: str) -> str:
     if priority == "상":
@@ -26,6 +23,44 @@ def priority_icon(priority: str) -> str:
     elif priority == "중":
         return "🟡"
     return "🟢"
+
+
+def supabase_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json",
+    }
+
+
+def save_tasks_to_supabase(tasks):
+    url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+    response = requests.post(
+        url,
+        headers={**supabase_headers(), "Prefer": "return=representation"},
+        json=tasks,
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def load_tasks_from_supabase(selected_date_str):
+    url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+    params = {
+        "study_date": f"eq.{selected_date_str}",
+        "select": "*",
+        "order": "start_hour.asc",
+    }
+    response = requests.get(
+        url,
+        headers=supabase_headers(),
+        params=params,
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
 
 st.title("임상욱 일일 스케쥴러")
 st.write("날짜별 공부 계획을 입력하고 DB에 누적 저장합니다.")
@@ -125,8 +160,11 @@ if tasks_data:
 
     if st.button("DB에 저장"):
         try:
-            supabase.table("study_tasks").insert(tasks_data).execute()
+            save_tasks_to_supabase(tasks_data)
             st.success("Supabase DB에 저장되었습니다.")
+        except requests.HTTPError as e:
+            detail = e.response.text if e.response is not None else str(e)
+            st.error(f"저장 중 HTTP 오류가 발생했습니다: {detail}")
         except Exception as e:
             st.error(f"저장 중 오류가 발생했습니다: {e}")
 else:
@@ -137,15 +175,7 @@ st.subheader("선택 날짜 저장 내역 조회")
 
 if st.button("저장된 데이터 불러오기"):
     try:
-        response = (
-            supabase.table("study_tasks")
-            .select("*")
-            .eq("study_date", str(selected_date))
-            .order("start_hour")
-            .execute()
-        )
-
-        rows = response.data if response.data else []
+        rows = load_tasks_from_supabase(str(selected_date))
         if rows:
             saved_df = pd.DataFrame(rows)
             saved_df["시간"] = saved_df["start_hour"].apply(format_hour) + " ~ " + saved_df["end_hour"].apply(format_hour)
@@ -155,7 +185,8 @@ if st.button("저장된 데이터 불러오기"):
             st.dataframe(saved_df, use_container_width=True, hide_index=True)
         else:
             st.info("해당 날짜에 저장된 데이터가 없습니다.")
+    except requests.HTTPError as e:
+        detail = e.response.text if e.response is not None else str(e)
+        st.error(f"조회 중 HTTP 오류가 발생했습니다: {detail}")
     except Exception as e:
         st.error(f"조회 중 오류가 발생했습니다: {e}")
-
-    
