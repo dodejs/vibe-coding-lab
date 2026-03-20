@@ -44,18 +44,6 @@ def supabase_headers():
     }
 
 
-def save_tasks_to_supabase(tasks):
-    url = f"{SUPABASE_URL}/rest/v1/study_tasks"
-    response = requests.post(
-        url,
-        headers={**supabase_headers(), "Prefer": "return=representation"},
-        json=tasks,
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
 def load_tasks_from_supabase(selected_date_str):
     url = f"{SUPABASE_URL}/rest/v1/study_tasks"
     params = {
@@ -73,6 +61,103 @@ def load_tasks_from_supabase(selected_date_str):
     return response.json()
 
 
+def delete_tasks_by_date(selected_date_str):
+    url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+    params = {
+        "study_date": f"eq.{selected_date_str}",
+    }
+    response = requests.delete(
+        url,
+        headers={**supabase_headers(), "Prefer": "return=representation"},
+        params=params,
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def overwrite_tasks_to_supabase(selected_date_str, tasks):
+    # 1. 기존 날짜 데이터 삭제
+    delete_tasks_by_date(selected_date_str)
+
+    # 2. 현재 입력 데이터 재저장
+    if tasks:
+        url = f"{SUPABASE_URL}/rest/v1/study_tasks"
+        response = requests.post(
+            url,
+            headers={**supabase_headers(), "Prefer": "return=representation"},
+            json=tasks,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    return []
+
+
+def get_month_range(selected_date_value):
+    year = selected_date_value.year
+    month = selected_date_value.month
+
+    month_start = date(year, month, 1)
+
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+
+    return month_start, next_month_start
+
+
+def load_month_tasks_from_supabase(selected_date_value):
+    month_start, next_month_start = get_month_range(selected_date_value)
+
+    query_url = (
+        f"{SUPABASE_URL}/rest/v1/study_tasks"
+        f"?select=*"
+        f"&study_date=gte.{month_start}"
+        f"&study_date=lt.{next_month_start}"
+        f"&order=study_date.asc,start_hour.asc"
+    )
+
+    response = requests.get(
+        query_url,
+        headers=supabase_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def calculate_monthly_reward(rows):
+    if not rows:
+        return 0, 0
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return 0, 0
+
+    daily_status = (
+        df.groupby("study_date")
+        .agg(
+            total_tasks=("completed", "count"),
+            completed_tasks=("completed", "sum")
+        )
+        .reset_index()
+    )
+
+    daily_status["all_completed"] = (
+        (daily_status["total_tasks"] > 0) &
+        (daily_status["total_tasks"] == daily_status["completed_tasks"])
+    )
+
+    completed_days = int(daily_status["all_completed"].sum())
+    monthly_reward = completed_days * reward_amount
+
+    return monthly_reward, completed_days
+
+
 st.markdown("""
 <style>
 html, body, [class*="css"] {
@@ -86,10 +171,10 @@ html, body, [class*="css"] {
 
 .main-title {
     text-align: center;
-    font-size: 42px;
+    font-size: 38px;
     font-weight: 900;
-    margin-top: 10px;
-    margin-bottom: 8px;
+    margin-top: 8px;
+    margin-bottom: 6px;
     color: #f5f3ff;
     text-shadow: 0 0 12px rgba(147, 51, 234, 0.7);
 }
@@ -122,21 +207,25 @@ html, body, [class*="css"] {
     margin-bottom: 14px;
 }
 
+.month-reward-box {
+    background: linear-gradient(135deg, #0f172a, #1d4ed8);
+    border: 1px solid rgba(96,165,250,0.45);
+    border-radius: 18px;
+    padding: 18px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 0 18px rgba(59,130,246,0.28);
+    margin-bottom: 18px;
+}
+
 .section-title {
     font-size: 24px;
     font-weight: 800;
     color: #e9d5ff;
     margin-top: 8px;
     margin-bottom: 12px;
-}
-
-.card-box {
-    background: rgba(15, 23, 42, 0.82);
-    border: 1px solid rgba(96,165,250,0.22);
-    border-radius: 18px;
-    padding: 16px;
-    box-shadow: 0 0 14px rgba(59,130,246,0.08);
-    margin-bottom: 16px;
 }
 
 .metric-box {
@@ -182,14 +271,6 @@ div[data-testid="stDataFrame"] {
     padding: 6px;
 }
 
-[data-testid="stMetricValue"] {
-    color: #f8fafc;
-}
-
-[data-testid="stMetricLabel"] {
-    color: #cbd5e1;
-}
-
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, #22d3ee, #8b5cf6) !important;
 }
@@ -200,11 +281,31 @@ label, .stMarkdown, .stText, p {
 </style>
 """, unsafe_allow_html=True)
 
+st.image("banner.png", use_container_width=True)
+
 st.markdown('<div class="main-title">임상욱 일일 스케쥴러</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-title">오늘의 임무를 배치하고, 주술 에너지를 100%까지 채워보자.</div>',
     unsafe_allow_html=True
 )
+
+selected_date = st.date_input("작전 날짜를 선택하세요", value=date.today())
+
+# 월별 누적 보상 (최종 저장본 기준)
+try:
+    month_rows = load_month_tasks_from_supabase(selected_date)
+    monthly_reward, completed_days = calculate_monthly_reward(month_rows)
+    st.markdown(
+        f"""
+        <div class="month-reward-box">
+            📅 {selected_date.year}년 {selected_date.month}월 누적 임무 보상<br>
+            {monthly_reward:,}원 / 완료한 날 {completed_days}일
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+except Exception as e:
+    st.warning(f"월별 누적 보상 조회 중 오류가 있어: {e}")
 
 st.markdown(
     f"""
@@ -213,15 +314,14 @@ st.markdown(
             ⚔️ 오늘의 미션 브리핑
         </div>
         <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
-            시간대별로 임무를 설정하고, 완료 체크를 하면서 하루 학습 흐름을 관리할 수 있어.
+            특정 날짜를 다시 저장하면 그 날짜의 기존 데이터는 지워지고,
+            <b>마지막 저장 상태만 최종본으로 반영</b>돼.
             모든 임무를 완수하면 <b>임무 보상 {reward_amount:,}원</b>이 활성화돼.
         </div>
     </div>
     """,
     unsafe_allow_html=True
 )
-
-selected_date = st.date_input("작전 날짜를 선택하세요", value=date.today())
 
 st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', unsafe_allow_html=True)
 
@@ -238,43 +338,42 @@ tasks_data = []
 for i in range(int(task_count)):
     st.markdown(f"#### 임무 {i+1}")
 
-    with st.container():
-        col1, col2, col3, col4, col5 = st.columns([4, 1.2, 1.2, 1.4, 1])
+    col1, col2, col3, col4, col5 = st.columns([4, 1.2, 1.2, 1.4, 1])
 
-        with col1:
-            task_name = st.text_input(
-                f"임무 내용 {i+1}",
-                placeholder="예: 고등 물리 숙제 완료하기",
-                key=f"task_name_{i}"
-            )
+    with col1:
+        task_name = st.text_input(
+            f"임무 내용 {i+1}",
+            placeholder="예: 고등 물리 숙제 완료하기",
+            key=f"task_name_{i}"
+        )
 
-        with col2:
-            start_hour = st.selectbox(
-                f"시작 {i+1}",
-                time_options[:-1],
-                format_func=format_hour,
-                key=f"start_hour_{i}"
-            )
+    with col2:
+        start_hour = st.selectbox(
+            f"시작 {i+1}",
+            time_options[:-1],
+            format_func=format_hour,
+            key=f"start_hour_{i}"
+        )
 
-        with col3:
-            valid_end_hours = [h for h in time_options if h > start_hour]
-            end_hour = st.selectbox(
-                f"종료 {i+1}",
-                valid_end_hours,
-                format_func=format_hour,
-                key=f"end_hour_{i}"
-            )
+    with col3:
+        valid_end_hours = [h for h in time_options if h > start_hour]
+        end_hour = st.selectbox(
+            f"종료 {i+1}",
+            valid_end_hours,
+            format_func=format_hour,
+            key=f"end_hour_{i}"
+        )
 
-        with col4:
-            priority = st.selectbox(
-                f"등급 {i+1}",
-                ["상", "중", "하"],
-                format_func=priority_label,
-                key=f"priority_{i}"
-            )
+    with col4:
+        priority = st.selectbox(
+            f"등급 {i+1}",
+            ["상", "중", "하"],
+            format_func=priority_label,
+            key=f"priority_{i}"
+        )
 
-        with col5:
-            completed = st.checkbox("완료", key=f"completed_{i}")
+    with col5:
+        completed = st.checkbox("완료", key=f"completed_{i}")
 
     if task_name.strip():
         tasks_data.append({
@@ -377,17 +476,10 @@ if tasks_data:
     col_save, col_load = st.columns(2)
 
     with col_save:
-        if st.button("💾 DB에 저장"):
+        if st.button("💾 최종 상태로 저장"):
             try:
-                url = f"{SUPABASE_URL}/rest/v1/study_tasks"
-                response = requests.post(
-                    url,
-                    headers={**supabase_headers(), "Prefer": "return=representation"},
-                    json=tasks_data,
-                    timeout=30,
-                )
-                response.raise_for_status()
-                st.success("DB에 저장 완료!")
+                overwrite_tasks_to_supabase(str(selected_date), tasks_data)
+                st.success("해당 날짜 데이터가 최종 상태로 저장되었어. 이전 이력은 덮어써졌어.")
             except requests.HTTPError as e:
                 detail = e.response.text if e.response is not None else str(e)
                 st.error(f"저장 중 HTTP 오류: {detail}")
@@ -395,23 +487,9 @@ if tasks_data:
                 st.error(f"저장 중 오류: {e}")
 
     with col_load:
-        if st.button("📂 저장된 데이터 불러오기"):
+        if st.button("📂 저장된 최종 데이터 불러오기"):
             try:
-                url = f"{SUPABASE_URL}/rest/v1/study_tasks"
-                params = {
-                    "study_date": f"eq.{str(selected_date)}",
-                    "select": "*",
-                    "order": "start_hour.asc",
-                }
-                response = requests.get(
-                    url,
-                    headers=supabase_headers(),
-                    params=params,
-                    timeout=30,
-                )
-                response.raise_for_status()
-                rows = response.json()
-
+                rows = load_tasks_from_supabase(str(selected_date))
                 if rows:
                     saved_df = pd.DataFrame(rows)
                     saved_df["시간"] = saved_df["start_hour"].apply(format_hour) + " ~ " + saved_df["end_hour"].apply(format_hour)
@@ -421,12 +499,11 @@ if tasks_data:
                     saved_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
                     st.dataframe(saved_df, use_container_width=True, hide_index=True)
                 else:
-                    st.info("해당 날짜에 저장된 데이터가 없어.")
+                    st.info("해당 날짜에 저장된 최종 데이터가 없어.")
             except requests.HTTPError as e:
                 detail = e.response.text if e.response is not None else str(e)
                 st.error(f"조회 중 HTTP 오류: {detail}")
             except Exception as e:
                 st.error(f"조회 중 오류: {e}")
-
 else:
     st.warning("임무를 하나 이상 입력해줘.")
