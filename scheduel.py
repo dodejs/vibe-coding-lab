@@ -11,11 +11,46 @@ st.set_page_config(
 reward_amount = 5000
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-time_options = list(range(4, 25))
+
+hour_options = list(range(4, 25))   # 04시 ~ 24시
+minute_options = [0, 10, 20, 30, 40, 50]
 
 
-def format_hour(hour: int) -> str:
-    return "24:00" if hour == 24 else f"{hour:02d}:00"
+def format_time(hour: int, minute: int) -> str:
+    if hour == 24:
+        return "24:00"
+    return f"{hour:02d}:{minute:02d}"
+
+
+def minutes_to_text(total_minutes: int) -> str:
+    hour = total_minutes // 60
+    minute = total_minutes % 60
+    if hour >= 24:
+        return "24:00"
+    return f"{hour:02d}:{minute:02d}"
+
+
+def split_minutes(total_minutes: int):
+    hour = total_minutes // 60
+    minute = total_minutes % 60
+
+    if hour < 4:
+        hour = 4
+        minute = 0
+    if hour > 24:
+        hour = 24
+        minute = 0
+
+    # 10분 단위 보정
+    minute = (minute // 10) * 10
+    if hour == 24:
+        minute = 0
+
+    return hour, minute
+
+
+def time_to_minutes(hour: int, minute: int) -> int:
+    return hour * 60 + minute
 
 
 def priority_label(priority: str) -> str:
@@ -47,7 +82,7 @@ def load_tasks_from_supabase(selected_date_str: str):
     params = {
         "study_date": f"eq.{selected_date_str}",
         "select": "*",
-        "order": "start_hour.asc",
+        "order": "start_minute_of_day.asc",
     }
     response = requests.get(
         url,
@@ -112,7 +147,7 @@ def load_month_tasks_from_supabase(selected_date_value):
         f"?select=*"
         f"&study_date=gte.{month_start}"
         f"&study_date=lt.{next_month_start}"
-        f"&order=study_date.asc,start_hour.asc"
+        f"&order=study_date.asc,start_minute_of_day.asc"
     )
 
     response = requests.get(
@@ -156,7 +191,9 @@ def blank_task():
     return {
         "task_name": "",
         "start_hour": 4,
+        "start_minute": 0,
         "end_hour": 5,
+        "end_minute": 0,
         "priority": "중",
         "completed": False,
     }
@@ -168,10 +205,18 @@ def rows_to_editor_tasks(rows):
 
     tasks = []
     for row in rows:
+        start_total = int(row.get("start_minute_of_day", 240))
+        end_total = int(row.get("end_minute_of_day", 300))
+
+        start_hour, start_minute = split_minutes(start_total)
+        end_hour, end_minute = split_minutes(end_total)
+
         tasks.append({
             "task_name": row.get("task_name", ""),
-            "start_hour": int(row.get("start_hour", 4)),
-            "end_hour": int(row.get("end_hour", 5)),
+            "start_hour": start_hour,
+            "start_minute": start_minute,
+            "end_hour": end_hour,
+            "end_minute": end_minute,
             "priority": row.get("priority", "중"),
             "completed": bool(row.get("completed", False)),
         })
@@ -218,15 +263,27 @@ def sync_widget_values_to_editor_tasks():
 
     for i in range(len(st.session_state.editor_tasks)):
         start_hour = st.session_state.get(f"start_hour_{i}", 4)
-        end_hour = st.session_state.get(f"end_hour_{i}", max(start_hour + 1, 5))
+        start_minute = st.session_state.get(f"start_minute_{i}", 0)
+        end_hour = st.session_state.get(f"end_hour_{i}", 5)
+        end_minute = st.session_state.get(f"end_minute_{i}", 0)
 
-        if end_hour <= start_hour:
-            end_hour = start_hour + 1 if start_hour < 24 else 24
+        start_total = time_to_minutes(start_hour, start_minute)
+        end_total = time_to_minutes(end_hour, end_minute)
+
+        if end_total <= start_total:
+            end_total = start_total + 10
+            if end_total > 1440:
+                end_total = 1440
+
+            end_hour = end_total // 60
+            end_minute = end_total % 60
 
         updated_tasks.append({
             "task_name": st.session_state.get(f"task_name_{i}", ""),
             "start_hour": start_hour,
+            "start_minute": start_minute,
             "end_hour": end_hour,
+            "end_minute": end_minute,
             "priority": st.session_state.get(f"priority_{i}", "중"),
             "completed": st.session_state.get(f"completed_{i}", False),
         })
@@ -442,9 +499,8 @@ st.markdown(
             ⚔️ 오늘의 미션 브리핑
         </div>
         <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
+            시작/종료 시간을 <b>10분 단위</b>로 설정할 수 있어.
             같은 날짜를 PC와 모바일에서 열면 <b>최신 저장 상태가 자동 로드</b>돼.
-            저장하면 그 날짜 데이터는 통째로 갱신되고, <b>마지막 저장 상태만 최종본</b>으로 남아.
-            모든 임무를 완수하면 <b>임무 보상 {reward_amount:,}원</b>이 반영돼.
         </div>
         """,
     unsafe_allow_html=True
@@ -484,7 +540,7 @@ st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', uns
 for i, task in enumerate(st.session_state.editor_tasks):
     st.markdown(f"#### 임무 {i+1}")
 
-    col1, col2, col3, col4, col5 = st.columns([4, 1.2, 1.2, 1.4, 1])
+    col1, col2, col3, col4, col5, col6 = st.columns([4, 1, 1, 1, 1, 1])
 
     with col1:
         st.text_input(
@@ -495,49 +551,60 @@ for i, task in enumerate(st.session_state.editor_tasks):
         )
 
     with col2:
-        current_start = task["start_hour"] if task["start_hour"] in time_options[:-1] else 4
-        start_index = time_options[:-1].index(current_start)
-
+        start_hour_index = hour_options.index(task["start_hour"]) if task["start_hour"] in hour_options else 0
         st.selectbox(
-            f"시작 {i+1}",
-            time_options[:-1],
-            index=start_index,
-            format_func=format_hour,
+            f"시작 시 {i+1}",
+            hour_options,
+            index=start_hour_index,
             key=f"start_hour_{i}"
         )
 
     with col3:
-        current_start_widget = st.session_state.get(f"start_hour_{i}", current_start)
-        valid_end_hours = [h for h in time_options if h > current_start_widget]
-        current_end = task["end_hour"] if task["end_hour"] in valid_end_hours else valid_end_hours[0]
-        end_index = valid_end_hours.index(current_end)
-
+        start_minute_index = minute_options.index(task["start_minute"]) if task["start_minute"] in minute_options else 0
         st.selectbox(
-            f"종료 {i+1}",
-            valid_end_hours,
-            index=end_index,
-            format_func=format_hour,
-            key=f"end_hour_{i}"
+            f"시작 분 {i+1}",
+            minute_options,
+            index=start_minute_index,
+            format_func=lambda x: f"{x:02d}분",
+            key=f"start_minute_{i}"
         )
 
     with col4:
-        priority_options = ["상", "중", "하"]
-        priority_index = priority_options.index(task["priority"]) if task["priority"] in priority_options else 1
-
+        end_hour_index = hour_options.index(task["end_hour"]) if task["end_hour"] in hour_options else 1
         st.selectbox(
-            f"등급 {i+1}",
-            priority_options,
-            index=priority_index,
-            format_func=priority_label,
-            key=f"priority_{i}"
+            f"종료 시 {i+1}",
+            hour_options,
+            index=end_hour_index,
+            key=f"end_hour_{i}"
         )
 
     with col5:
+        end_minute_index = minute_options.index(task["end_minute"]) if task["end_minute"] in minute_options else 0
+        st.selectbox(
+            f"종료 분 {i+1}",
+            minute_options,
+            index=end_minute_index,
+            format_func=lambda x: f"{x:02d}분",
+            key=f"end_minute_{i}"
+        )
+
+    with col6:
         st.checkbox(
             "완료",
             value=task["completed"],
             key=f"completed_{i}"
         )
+
+    priority_options = ["상", "중", "하"]
+    priority_index = priority_options.index(task["priority"]) if task["priority"] in priority_options else 1
+
+    st.selectbox(
+        f"등급 {i+1}",
+        priority_options,
+        index=priority_index,
+        format_func=priority_label,
+        key=f"priority_{i}"
+    )
 
 sync_widget_values_to_editor_tasks()
 
@@ -546,16 +613,20 @@ last_saved_at_utc = datetime.now(timezone.utc).isoformat()
 
 for task in st.session_state.editor_tasks:
     if task["task_name"].strip():
-        tasks_data.append({
-            "study_date": selected_date_str,
-            "task_name": task["task_name"],
-            "start_hour": task["start_hour"],
-            "end_hour": task["end_hour"],
-            "priority": task["priority"],
-            "completed": task["completed"],
-            "last_saved_by": saver_name.strip() if saver_name.strip() else "이름없음",
-            "last_saved_at": last_saved_at_utc,
-        })
+        start_total = time_to_minutes(task["start_hour"], task["start_minute"])
+        end_total = time_to_minutes(task["end_hour"], task["end_minute"])
+
+        if end_total > start_total:
+            tasks_data.append({
+                "study_date": selected_date_str,
+                "task_name": task["task_name"],
+                "start_minute_of_day": start_total,
+                "end_minute_of_day": end_total,
+                "priority": task["priority"],
+                "completed": task["completed"],
+                "last_saved_by": saver_name.strip() if saver_name.strip() else "이름없음",
+                "last_saved_at": last_saved_at_utc,
+            })
 
 st.markdown("---")
 st.markdown('<div class="section-title">🌀 오늘의 임무 요약</div>', unsafe_allow_html=True)
@@ -563,7 +634,7 @@ st.markdown('<div class="section-title">🌀 오늘의 임무 요약</div>', uns
 if tasks_data:
     input_df = pd.DataFrame(tasks_data)
     view_df = input_df.copy()
-    view_df["시간"] = view_df["start_hour"].apply(format_hour) + " ~ " + view_df["end_hour"].apply(format_hour)
+    view_df["시간"] = view_df["start_minute_of_day"].apply(minutes_to_text) + " ~ " + view_df["end_minute_of_day"].apply(minutes_to_text)
     view_df["등급"] = view_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
     view_df["완료 여부"] = view_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
     view_df = view_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
@@ -615,17 +686,19 @@ if tasks_data:
     st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
 
     schedule_rows = []
-    for hour in range(4, 24):
+    for start_min in range(240, 1440, 10):  # 04:00 ~ 24:00, 10분 단위
+        end_min = min(start_min + 10, 1440)
+
         matched_tasks = []
         for _, row in input_df.iterrows():
-            if row["start_hour"] <= hour < row["end_hour"]:
+            if row["start_minute_of_day"] <= start_min < row["end_minute_of_day"]:
                 status_icon = "✅" if row["completed"] else "⬜"
                 matched_tasks.append(
                     f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
                 )
 
         schedule_rows.append({
-            "시간대": f"{hour:02d}:00 ~ {hour+1:02d}:00",
+            "시간대": f"{minutes_to_text(start_min)} ~ {minutes_to_text(end_min)}",
             "계획": " / ".join(matched_tasks) if matched_tasks else ""
         })
 
@@ -652,7 +725,7 @@ if tasks_data:
             try:
                 overwrite_tasks_to_supabase(selected_date_str, tasks_data)
                 init_editor_for_date(selected_date_str)
-                st.success("최종 상태 저장 완료. 마지막 저장자와 시간이 갱신됐어.")
+                st.success("최종 상태 저장 완료. 10분 단위 시간 설정이 반영됐어.")
                 st.rerun()
             except requests.HTTPError as e:
                 detail = e.response.text if e.response is not None else str(e)
@@ -666,7 +739,7 @@ if tasks_data:
                 rows = load_tasks_from_supabase(selected_date_str)
                 if rows:
                     saved_df = pd.DataFrame(rows)
-                    saved_df["시간"] = saved_df["start_hour"].apply(format_hour) + " ~ " + saved_df["end_hour"].apply(format_hour)
+                    saved_df["시간"] = saved_df["start_minute_of_day"].apply(minutes_to_text) + " ~ " + saved_df["end_minute_of_day"].apply(minutes_to_text)
                     saved_df["등급"] = saved_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
                     saved_df["완료 여부"] = saved_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
                     saved_df = saved_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
