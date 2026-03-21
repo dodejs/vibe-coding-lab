@@ -12,45 +12,35 @@ reward_amount = 5000
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-hour_options = list(range(4, 25))   # 04시 ~ 24시
-minute_options = [0, 10, 20, 30, 40, 50]
+
+def make_time_options():
+    options = []
+    for total_min in range(240, 1441, 10):  # 04:00 ~ 24:00
+        hour = total_min // 60
+        minute = total_min % 60
+        if hour >= 24:
+            options.append("24:00")
+        else:
+            options.append(f"{hour:02d}:{minute:02d}")
+    return options
 
 
-def format_time(hour: int, minute: int) -> str:
-    if hour == 24:
-        return "24:00"
-    return f"{hour:02d}:{minute:02d}"
+TIME_OPTIONS = make_time_options()
+
+
+def time_text_to_minutes(time_text: str) -> int:
+    if time_text == "24:00":
+        return 1440
+    hour, minute = time_text.split(":")
+    return int(hour) * 60 + int(minute)
 
 
 def minutes_to_text(total_minutes: int) -> str:
-    hour = total_minutes // 60
-    minute = total_minutes % 60
-    if hour >= 24:
+    if total_minutes >= 1440:
         return "24:00"
-    return f"{hour:02d}:{minute:02d}"
-
-
-def split_minutes(total_minutes: int):
     hour = total_minutes // 60
     minute = total_minutes % 60
-
-    if hour < 4:
-        hour = 4
-        minute = 0
-    if hour > 24:
-        hour = 24
-        minute = 0
-
-    # 10분 단위 보정
-    minute = (minute // 10) * 10
-    if hour == 24:
-        minute = 0
-
-    return hour, minute
-
-
-def time_to_minutes(hour: int, minute: int) -> int:
-    return hour * 60 + minute
+    return f"{hour:02d}:{minute:02d}"
 
 
 def priority_label(priority: str) -> str:
@@ -190,10 +180,8 @@ def calculate_monthly_reward(rows):
 def blank_task():
     return {
         "task_name": "",
-        "start_hour": 4,
-        "start_minute": 0,
-        "end_hour": 5,
-        "end_minute": 0,
+        "start_time": "04:00",
+        "end_time": "05:00",
         "priority": "중",
         "completed": False,
     }
@@ -208,15 +196,10 @@ def rows_to_editor_tasks(rows):
         start_total = int(row.get("start_minute_of_day", 240))
         end_total = int(row.get("end_minute_of_day", 300))
 
-        start_hour, start_minute = split_minutes(start_total)
-        end_hour, end_minute = split_minutes(end_total)
-
         tasks.append({
             "task_name": row.get("task_name", ""),
-            "start_hour": start_hour,
-            "start_minute": start_minute,
-            "end_hour": end_hour,
-            "end_minute": end_minute,
+            "start_time": minutes_to_text(start_total),
+            "end_time": minutes_to_text(end_total),
             "priority": row.get("priority", "중"),
             "completed": bool(row.get("completed", False)),
         })
@@ -227,11 +210,7 @@ def extract_last_save_info(rows):
     if not rows:
         return "-", "-"
 
-    latest_row = max(
-        rows,
-        key=lambda x: x.get("last_saved_at") or ""
-    )
-
+    latest_row = max(rows, key=lambda x: x.get("last_saved_at") or "")
     saved_by = latest_row.get("last_saved_by") or "-"
     saved_at_raw = latest_row.get("last_saved_at")
 
@@ -262,28 +241,22 @@ def sync_widget_values_to_editor_tasks():
     updated_tasks = []
 
     for i in range(len(st.session_state.editor_tasks)):
-        start_hour = st.session_state.get(f"start_hour_{i}", 4)
-        start_minute = st.session_state.get(f"start_minute_{i}", 0)
-        end_hour = st.session_state.get(f"end_hour_{i}", 5)
-        end_minute = st.session_state.get(f"end_minute_{i}", 0)
+        start_time = st.session_state.get(f"start_time_{i}", "04:00")
+        end_time = st.session_state.get(f"end_time_{i}", "05:00")
 
-        start_total = time_to_minutes(start_hour, start_minute)
-        end_total = time_to_minutes(end_hour, end_minute)
+        start_total = time_text_to_minutes(start_time)
+        end_total = time_text_to_minutes(end_time)
 
         if end_total <= start_total:
             end_total = start_total + 10
             if end_total > 1440:
                 end_total = 1440
-
-            end_hour = end_total // 60
-            end_minute = end_total % 60
+            end_time = minutes_to_text(end_total)
 
         updated_tasks.append({
             "task_name": st.session_state.get(f"task_name_{i}", ""),
-            "start_hour": start_hour,
-            "start_minute": start_minute,
-            "end_hour": end_hour,
-            "end_minute": end_minute,
+            "start_time": start_time,
+            "end_time": end_time,
             "priority": st.session_state.get(f"priority_{i}", "중"),
             "completed": st.session_state.get(f"completed_{i}", False),
         })
@@ -296,12 +269,10 @@ st.markdown("""
 html, body, [class*="css"] {
     font-family: "Arial", sans-serif;
 }
-
 .stApp {
     background: linear-gradient(180deg, #0b1020 0%, #121a33 45%, #0f172a 100%);
     color: #f8fafc;
 }
-
 .main-title {
     text-align: center;
     font-size: 40px;
@@ -311,14 +282,12 @@ html, body, [class*="css"] {
     color: #f5f3ff;
     text-shadow: 0 0 12px rgba(147, 51, 234, 0.7);
 }
-
 .sub-title {
     text-align: center;
     font-size: 18px;
     color: #cbd5e1;
     margin-bottom: 20px;
 }
-
 .hero-box {
     background: linear-gradient(135deg, rgba(88,28,135,0.95), rgba(30,41,59,0.95));
     border: 1px solid rgba(168,85,247,0.45);
@@ -327,7 +296,6 @@ html, body, [class*="css"] {
     box-shadow: 0 0 22px rgba(168,85,247,0.18);
     margin-bottom: 20px;
 }
-
 .reward-box {
     background: linear-gradient(135deg, #1e1b4b, #6d28d9);
     border-radius: 18px;
@@ -339,7 +307,6 @@ html, body, [class*="css"] {
     box-shadow: 0 0 18px rgba(124,58,237,0.35);
     margin-bottom: 14px;
 }
-
 .month-reward-box {
     background: linear-gradient(135deg, #0f172a, #1d4ed8);
     border: 1px solid rgba(96,165,250,0.45);
@@ -352,7 +319,6 @@ html, body, [class*="css"] {
     box-shadow: 0 0 18px rgba(59,130,246,0.28);
     margin-bottom: 18px;
 }
-
 .info-box {
     background: rgba(30, 41, 59, 0.9);
     border: 1px solid rgba(168,85,247,0.28);
@@ -361,7 +327,6 @@ html, body, [class*="css"] {
     text-align: center;
     margin-bottom: 12px;
 }
-
 .section-title {
     font-size: 24px;
     font-weight: 800;
@@ -369,7 +334,6 @@ html, body, [class*="css"] {
     margin-top: 8px;
     margin-bottom: 12px;
 }
-
 .metric-box {
     background: rgba(30, 41, 59, 0.9);
     border: 1px solid rgba(168,85,247,0.28);
@@ -378,19 +342,16 @@ html, body, [class*="css"] {
     text-align: center;
     margin-bottom: 10px;
 }
-
 .metric-title {
     font-size: 14px;
     color: #cbd5e1;
 }
-
 .metric-value {
     font-size: 28px;
     font-weight: 900;
     color: #f8fafc;
     margin-top: 4px;
 }
-
 div.stButton > button {
     width: 100%;
     border-radius: 14px;
@@ -400,23 +361,19 @@ div.stButton > button {
     font-weight: 800;
     box-shadow: 0 0 14px rgba(124,58,237,0.25);
 }
-
 div.stButton > button:hover {
     border: 1px solid #c084fc;
     background: linear-gradient(90deg, #5b21b6, #8b5cf6);
     color: white;
 }
-
 div[data-testid="stDataFrame"] {
     background: rgba(15, 23, 42, 0.85);
     border-radius: 14px;
     padding: 6px;
 }
-
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, #22d3ee, #8b5cf6) !important;
 }
-
 label, .stMarkdown, .stText, p {
     color: #e2e8f0 !important;
 }
@@ -434,13 +391,10 @@ selected_date_str = str(selected_date)
 
 if "loaded_date" not in st.session_state:
     st.session_state.loaded_date = None
-
 if "editor_tasks" not in st.session_state:
     st.session_state.editor_tasks = [blank_task() for _ in range(5)]
-
 if "last_saved_by" not in st.session_state:
     st.session_state.last_saved_by = "-"
-
 if "last_saved_at" not in st.session_state:
     st.session_state.last_saved_at = "-"
 
@@ -480,7 +434,6 @@ with info1:
         """,
         unsafe_allow_html=True
     )
-
 with info2:
     st.markdown(
         f"""
@@ -499,10 +452,11 @@ st.markdown(
             ⚔️ 오늘의 미션 브리핑
         </div>
         <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
-            시작/종료 시간을 <b>10분 단위</b>로 설정할 수 있어.
-            같은 날짜를 PC와 모바일에서 열면 <b>최신 저장 상태가 자동 로드</b>돼.
+            시작 시간과 종료 시간은 각각 <b>1개 박스</b>에서 선택하고,
+            박스 안에서 <b>10분 단위</b>까지 선택할 수 있어.
         </div>
-        """,
+    </div>
+    """,
     unsafe_allow_html=True
 )
 
@@ -540,7 +494,7 @@ st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', uns
 for i, task in enumerate(st.session_state.editor_tasks):
     st.markdown(f"#### 임무 {i+1}")
 
-    col1, col2, col3, col4, col5, col6 = st.columns([4, 1, 1, 1, 1, 1])
+    col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
 
     with col1:
         st.text_input(
@@ -551,44 +505,24 @@ for i, task in enumerate(st.session_state.editor_tasks):
         )
 
     with col2:
-        start_hour_index = hour_options.index(task["start_hour"]) if task["start_hour"] in hour_options else 0
+        start_index = TIME_OPTIONS.index(task["start_time"]) if task["start_time"] in TIME_OPTIONS else 0
         st.selectbox(
-            f"시작 시 {i+1}",
-            hour_options,
-            index=start_hour_index,
-            key=f"start_hour_{i}"
+            f"시작 시간 {i+1}",
+            TIME_OPTIONS,
+            index=start_index,
+            key=f"start_time_{i}"
         )
 
     with col3:
-        start_minute_index = minute_options.index(task["start_minute"]) if task["start_minute"] in minute_options else 0
+        end_index = TIME_OPTIONS.index(task["end_time"]) if task["end_time"] in TIME_OPTIONS else 1
         st.selectbox(
-            f"시작 분 {i+1}",
-            minute_options,
-            index=start_minute_index,
-            format_func=lambda x: f"{x:02d}분",
-            key=f"start_minute_{i}"
+            f"종료 시간 {i+1}",
+            TIME_OPTIONS,
+            index=end_index,
+            key=f"end_time_{i}"
         )
 
     with col4:
-        end_hour_index = hour_options.index(task["end_hour"]) if task["end_hour"] in hour_options else 1
-        st.selectbox(
-            f"종료 시 {i+1}",
-            hour_options,
-            index=end_hour_index,
-            key=f"end_hour_{i}"
-        )
-
-    with col5:
-        end_minute_index = minute_options.index(task["end_minute"]) if task["end_minute"] in minute_options else 0
-        st.selectbox(
-            f"종료 분 {i+1}",
-            minute_options,
-            index=end_minute_index,
-            format_func=lambda x: f"{x:02d}분",
-            key=f"end_minute_{i}"
-        )
-
-    with col6:
         st.checkbox(
             "완료",
             value=task["completed"],
@@ -613,8 +547,8 @@ last_saved_at_utc = datetime.now(timezone.utc).isoformat()
 
 for task in st.session_state.editor_tasks:
     if task["task_name"].strip():
-        start_total = time_to_minutes(task["start_hour"], task["start_minute"])
-        end_total = time_to_minutes(task["end_hour"], task["end_minute"])
+        start_total = time_text_to_minutes(task["start_time"])
+        end_total = time_text_to_minutes(task["end_time"])
 
         if end_total > start_total:
             tasks_data.append({
@@ -649,61 +583,15 @@ if tasks_data:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">총 임무 수</div>
-                <div class="metric-value">{total_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div class="metric-box"><div class="metric-title">총 임무 수</div><div class="metric-value">{total_tasks}</div></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">완료한 임무</div>
-                <div class="metric-value">{completed_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div class="metric-box"><div class="metric-title">완료한 임무</div><div class="metric-value">{completed_tasks}</div></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">남은 임무</div>
-                <div class="metric-value">{remaining_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div class="metric-box"><div class="metric-title">남은 임무</div><div class="metric-value">{remaining_tasks}</div></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-title">⚡ 주술 에너지 충전율</div>', unsafe_allow_html=True)
     st.progress(completion_rate / 100)
     st.write(f"현재 에너지 충전율: **{completion_rate}%**")
-
-    st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
-
-    schedule_rows = []
-    for start_min in range(240, 1440, 10):  # 04:00 ~ 24:00, 10분 단위
-        end_min = min(start_min + 10, 1440)
-
-        matched_tasks = []
-        for _, row in input_df.iterrows():
-            if row["start_minute_of_day"] <= start_min < row["end_minute_of_day"]:
-                status_icon = "✅" if row["completed"] else "⬜"
-                matched_tasks.append(
-                    f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
-                )
-
-        schedule_rows.append({
-            "시간대": f"{minutes_to_text(start_min)} ~ {minutes_to_text(end_min)}",
-            "계획": " / ".join(matched_tasks) if matched_tasks else ""
-        })
-
-    schedule_df = pd.DataFrame(schedule_rows)
-    st.dataframe(schedule_df, use_container_width=True, hide_index=True)
 
     if total_tasks > 0 and completed_tasks == total_tasks:
         st.markdown(
@@ -725,7 +613,7 @@ if tasks_data:
             try:
                 overwrite_tasks_to_supabase(selected_date_str, tasks_data)
                 init_editor_for_date(selected_date_str)
-                st.success("최종 상태 저장 완료. 10분 단위 시간 설정이 반영됐어.")
+                st.success("최종 상태 저장 완료. 시작/종료 시간은 한 박스씩 선택하게 바뀌었어.")
                 st.rerun()
             except requests.HTTPError as e:
                 detail = e.response.text if e.response is not None else str(e)
