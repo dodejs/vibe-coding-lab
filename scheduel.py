@@ -232,6 +232,13 @@ def sync_widget_values_to_editor_tasks():
     st.session_state.editor_tasks = updated_tasks
 
 
+# ──────────────────────────────────────────────
+# 핵심 수정: 과거 날짜 여부 판별 함수
+# ──────────────────────────────────────────────
+def is_past_date(selected_date_value):
+    return selected_date_value < date.today()
+
+
 st.markdown("""
 <style>
 html, body, [class*="css"] {
@@ -291,6 +298,18 @@ html, body, [class*="css"] {
     font-weight: 800;
     color: white;
     box-shadow: 0 0 18px rgba(59,130,246,0.28);
+    margin-bottom: 18px;
+}
+
+.past-date-banner {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border: 1px solid rgba(251,191,36,0.45);
+    border-radius: 18px;
+    padding: 14px 20px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fbbf24;
     margin-bottom: 18px;
 }
 
@@ -363,6 +382,7 @@ st.markdown(
 
 selected_date = st.date_input("작전 날짜를 선택하세요", value=date.today())
 selected_date_str = str(selected_date)
+past_mode = is_past_date(selected_date)
 
 if "loaded_date" not in st.session_state:
     st.session_state.loaded_date = None
@@ -393,267 +413,383 @@ try:
 except Exception as e:
     st.warning(f"월별 누적 보상 조회 중 오류가 있어: {e}")
 
-st.markdown(
-    f"""
-    <div class="hero-box">
-        <div style="font-size:20px; font-weight:800; color:#f5f3ff; margin-bottom:8px;">
-            ⚔️ 오늘의 미션 브리핑
-        </div>
-        <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
-            10분 단위로 임무 시간을 설정할 수 있어.
-            같은 날짜를 PC와 모바일에서 열면 <b>최신 저장 상태가 자동 로드</b>돼.
-            저장하면 그 날짜 데이터는 통째로 갱신되고, <b>마지막 저장 상태만 최종본</b>으로 남아.
-            모든 임무를 완수하면 <b>임무 보상 {reward_amount:,}원</b>이 반영돼.
-        </div>
-        """,
-    unsafe_allow_html=True
-)
+# ──────────────────────────────────────────────
+# 과거 날짜: 읽기 전용 모드로 저장된 데이터 바로 표시
+# ──────────────────────────────────────────────
+if past_mode:
+    st.markdown(
+        f'<div class="past-date-banner">📅 {selected_date.strftime("%Y년 %m월 %d일")} — 지난 날짜 기록 보기 (읽기 전용)</div>',
+        unsafe_allow_html=True
+    )
 
-top_left, top_mid, top_right = st.columns([1, 1, 1])
-
-with top_left:
-    if st.button("➕ 임무 추가"):
-        sync_widget_values_to_editor_tasks()
-        st.session_state.editor_tasks.append(blank_task())
-        st.rerun()
-
-with top_mid:
-    if st.button("➖ 마지막 임무 삭제"):
-        sync_widget_values_to_editor_tasks()
-        if len(st.session_state.editor_tasks) > 1:
-            st.session_state.editor_tasks.pop()
-        st.rerun()
-
-with top_right:
-    if st.button("🔄 최신 상태 다시 불러오기"):
-        try:
-            init_editor_for_date(selected_date_str)
-            st.rerun()
-        except Exception as e:
-            st.error(f"최신 상태 불러오기 실패: {e}")
-
-st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', unsafe_allow_html=True)
-
-for i, task in enumerate(st.session_state.editor_tasks):
-    st.markdown(f"#### 임무 {i+1}")
-
-    col1, col2, col3, col4, col5 = st.columns([4, 1.5, 1.5, 1.4, 1])
-
-    with col1:
-        st.text_input(
-            f"임무 내용 {i+1}",
-            value=task["task_name"],
-            placeholder="예: 고등 물리 숙제 완료하기",
-            key=f"task_name_{i}"
-        )
-
-    with col2:
-        current_start = task["start_time"] if task["start_time"] in time_options else "04:00"
-        start_index = time_options.index(current_start)
-
-        st.selectbox(
-            f"시작 {i+1}",
-            time_options[:-1],
-            index=start_index,
-            key=f"start_time_{i}"
-        )
-
-    with col3:
-        current_start_widget = st.session_state.get(f"start_time_{i}", current_start)
-        valid_end_times = [t for t in time_options if time_to_minutes(t) > time_to_minutes(current_start_widget)]
-        current_end = task["end_time"] if task["end_time"] in valid_end_times else valid_end_times[0]
-        end_index = valid_end_times.index(current_end)
-
-        st.selectbox(
-            f"종료 {i+1}",
-            valid_end_times,
-            index=end_index,
-            key=f"end_time_{i}"
-        )
-
-    with col4:
-        priority_options = ["상", "중", "하"]
-        priority_index = priority_options.index(task["priority"]) if task["priority"] in priority_options else 1
-
-        st.selectbox(
-            f"등급 {i+1}",
-            priority_options,
-            index=priority_index,
-            format_func=priority_label,
-            key=f"priority_{i}"
-        )
-
-    with col5:
-        st.checkbox(
-            "완료",
-            value=task["completed"],
-            key=f"completed_{i}"
-        )
-
-sync_widget_values_to_editor_tasks()
-
-tasks_data = []
-for task in st.session_state.editor_tasks:
-    task_name = str(task.get("task_name", "")).strip()
-    start_time = task.get("start_time", "04:00")
-    end_time = task.get("end_time", "04:10")
-    priority = task.get("priority", "중")
-    completed = bool(task.get("completed", False))
-
-    if not task_name:
-        continue
-
-    if start_time not in time_options:
-        start_time = "04:00"
-    if end_time not in time_options:
-        end_time = "04:10"
-
-    if time_to_minutes(end_time) <= time_to_minutes(start_time):
-        start_index = time_options.index(start_time)
-        if start_index + 1 < len(time_options):
-            end_time = time_options[start_index + 1]
-        else:
-            end_time = "24:00"
-
-    if priority not in ["상", "중", "하"]:
-        priority = "중"
-
-    tasks_data.append({
-        "study_date": selected_date_str,
-        "task_name": task_name,
-        "start_time": start_time,
-        "end_time": end_time,
-        "priority": priority,
-        "completed": completed,
-    })
-
-st.markdown("---")
-st.markdown('<div class="section-title">🌀 오늘의 임무 요약</div>', unsafe_allow_html=True)
-
-if tasks_data:
-    input_df = pd.DataFrame(tasks_data)
-    view_df = input_df.copy()
-    view_df["시간"] = view_df["start_time"] + " ~ " + view_df["end_time"]
-    view_df["등급"] = view_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
-    view_df["완료 여부"] = view_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
-    view_df = view_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
-    view_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
-
-    st.dataframe(view_df, use_container_width=True, hide_index=True)
-
-    total_tasks = len(input_df)
-    completed_tasks = int(input_df["completed"].sum())
-    remaining_tasks = total_tasks - completed_tasks
-    completion_rate = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">총 임무 수</div>
-                <div class="metric-value">{total_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    with c2:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">완료한 임무</div>
-                <div class="metric-value">{completed_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    with c3:
-        st.markdown(
-            f"""
-            <div class="metric-box">
-                <div class="metric-title">남은 임무</div>
-                <div class="metric-value">{remaining_tasks}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    st.markdown('<div class="section-title">⚡ 주술 에너지 충전율</div>', unsafe_allow_html=True)
-    st.progress(completion_rate / 100)
-    st.write(f"현재 에너지 충전율: **{completion_rate}%**")
-
-    st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
-
-    schedule_rows = []
-    for idx in range(len(time_options) - 1):
-        slot_start = time_options[idx]
-        slot_end = time_options[idx + 1]
-        matched_tasks = []
-
-        for _, row in input_df.iterrows():
-            if (
-                time_to_minutes(row["start_time"]) <= time_to_minutes(slot_start)
-                and time_to_minutes(row["end_time"]) > time_to_minutes(slot_start)
-            ):
-                status_icon = "✅" if row["completed"] else "⬜"
-                matched_tasks.append(
-                    f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
-                )
-
-        schedule_rows.append({
-            "시간대": f"{slot_start} ~ {slot_end}",
-            "계획": " / ".join(matched_tasks) if matched_tasks else ""
+    saved_rows = st.session_state.editor_tasks
+    tasks_data_past = []
+    for task in saved_rows:
+        task_name = str(task.get("task_name", "")).strip()
+        if not task_name:
+            continue
+        tasks_data_past.append({
+            "study_date": selected_date_str,
+            "task_name": task_name,
+            "start_time": task.get("start_time", "04:00"),
+            "end_time": task.get("end_time", "04:10"),
+            "priority": task.get("priority", "중"),
+            "completed": bool(task.get("completed", False)),
         })
 
-    schedule_df = pd.DataFrame(schedule_rows)
-    st.dataframe(schedule_df, use_container_width=True, hide_index=True)
+    if tasks_data_past:
+        past_df = pd.DataFrame(tasks_data_past)
 
-    if total_tasks > 0 and completed_tasks == total_tasks:
-        st.markdown(
-            f"""
-            <div class="reward-box">
-                🎉 모든 임무 완수!<br>
-                임무 보상 {reward_amount:,}원 획득
+        st.markdown('<div class="section-title">📘 해당 날짜 임무 기록</div>', unsafe_allow_html=True)
+
+        view_df = past_df.copy()
+        view_df["시간"] = view_df["start_time"] + " ~ " + view_df["end_time"]
+        view_df["등급"] = view_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
+        view_df["완료 여부"] = view_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 미완료")
+        view_df = view_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
+        view_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
+        st.dataframe(view_df, use_container_width=True, hide_index=True)
+
+        total_tasks = len(past_df)
+        completed_tasks = int(past_df["completed"].sum())
+        remaining_tasks = total_tasks - completed_tasks
+        completion_rate = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">총 임무 수</div>
+                    <div class="metric-value">{total_tasks}</div>
+                </div>
+                """, unsafe_allow_html=True
+            )
+        with c2:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">완료한 임무</div>
+                    <div class="metric-value">{completed_tasks}</div>
+                </div>
+                """, unsafe_allow_html=True
+            )
+        with c3:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">남은 임무</div>
+                    <div class="metric-value">{remaining_tasks}</div>
+                </div>
+                """, unsafe_allow_html=True
+            )
+
+        st.markdown('<div class="section-title">⚡ 주술 에너지 충전율</div>', unsafe_allow_html=True)
+        st.progress(completion_rate / 100)
+        st.write(f"최종 에너지 충전율: **{completion_rate}%**")
+
+        if total_tasks > 0 and completed_tasks == total_tasks:
+            st.markdown(
+                f"""
+                <div class="reward-box">
+                    🎉 모든 임무 완수!<br>
+                    임무 보상 {reward_amount:,}원 획득
+                </div>
+                """, unsafe_allow_html=True
+            )
+        else:
+            st.info(f"이 날은 {total_tasks}개 중 {completed_tasks}개 임무를 완료했어.")
+
+        st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
+        schedule_rows = []
+        for idx in range(len(time_options) - 1):
+            slot_start = time_options[idx]
+            slot_end = time_options[idx + 1]
+            matched_tasks = []
+            for _, row in past_df.iterrows():
+                if (
+                    time_to_minutes(row["start_time"]) <= time_to_minutes(slot_start)
+                    and time_to_minutes(row["end_time"]) > time_to_minutes(slot_start)
+                ):
+                    status_icon = "✅" if row["completed"] else "⬜"
+                    matched_tasks.append(
+                        f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
+                    )
+            schedule_rows.append({
+                "시간대": f"{slot_start} ~ {slot_end}",
+                "계획": " / ".join(matched_tasks) if matched_tasks else ""
+            })
+        schedule_df = pd.DataFrame(schedule_rows)
+        st.dataframe(schedule_df, use_container_width=True, hide_index=True)
+
+    else:
+        st.info("해당 날짜에 저장된 임무 기록이 없어.")
+
+# ──────────────────────────────────────────────
+# 오늘 / 미래 날짜: 기존 편집 모드
+# ──────────────────────────────────────────────
+else:
+    st.markdown(
+        f"""
+        <div class="hero-box">
+            <div style="font-size:20px; font-weight:800; color:#f5f3ff; margin-bottom:8px;">
+                ⚔️ 오늘의 미션 브리핑
+            </div>
+            <div style="font-size:15px; color:#e2e8f0; line-height:1.6;">
+                10분 단위로 임무 시간을 설정할 수 있어.
+                같은 날짜를 PC와 모바일에서 열면 <b>최신 저장 상태가 자동 로드</b>돼.
+                저장하면 그 날짜 데이터는 통째로 갱신되고, <b>마지막 저장 상태만 최종본</b>으로 남아.
+                모든 임무를 완수하면 <b>임무 보상 {reward_amount:,}원</b>이 반영돼.
             </div>
             """,
-            unsafe_allow_html=True
-        )
-    else:
-        st.info(f"모든 임무를 완료하면 임무 보상 {reward_amount:,}원이 활성화돼.")
+        unsafe_allow_html=True
+    )
 
-    save_col, load_col = st.columns(2)
+    top_left, top_mid, top_right = st.columns([1, 1, 1])
 
-    with save_col:
-        if st.button("💾 최종 상태로 저장"):
+    with top_left:
+        if st.button("➕ 임무 추가"):
+            sync_widget_values_to_editor_tasks()
+            st.session_state.editor_tasks.append(blank_task())
+            st.rerun()
+
+    with top_mid:
+        if st.button("➖ 마지막 임무 삭제"):
+            sync_widget_values_to_editor_tasks()
+            if len(st.session_state.editor_tasks) > 1:
+                st.session_state.editor_tasks.pop()
+            st.rerun()
+
+    with top_right:
+        if st.button("🔄 최신 상태 다시 불러오기"):
             try:
-                overwrite_tasks_to_supabase(selected_date_str, tasks_data)
                 init_editor_for_date(selected_date_str)
-                st.success("최종 상태 저장 완료. PC와 모바일 모두 같은 최신 상태를 보게 돼.")
                 st.rerun()
-            except requests.HTTPError as e:
-                detail = e.response.text if e.response is not None else str(e)
-                st.error(f"저장 중 HTTP 오류: {detail}")
             except Exception as e:
-                st.error(f"저장 중 오류: {e}")
+                st.error(f"최신 상태 불러오기 실패: {e}")
 
-    with load_col:
-        if st.button("📂 저장된 최종 데이터 보기"):
-            try:
-                rows = load_tasks_from_supabase(selected_date_str)
-                if rows:
-                    saved_df = pd.DataFrame(rows)
-                    saved_df["시간"] = saved_df["start_time"] + " ~ " + saved_df["end_time"]
-                    saved_df["등급"] = saved_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
-                    saved_df["완료 여부"] = saved_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
-                    saved_df = saved_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
-                    saved_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
-                    st.dataframe(saved_df, use_container_width=True, hide_index=True)
-                else:
-                    st.info("해당 날짜에 저장된 최종 데이터가 없어.")
-            except requests.HTTPError as e:
-                detail = e.response.text if e.response is not None else str(e)
-                st.error(f"조회 중 HTTP 오류: {detail}")
-            except Exception as e:
-                st.error(f"조회 중 오류: {e}")
-else:
-    st.warning("임무를 하나 이상 입력해줘.")
+    st.markdown('<div class="section-title">📘 오늘의 임무 입력</div>', unsafe_allow_html=True)
+
+    for i, task in enumerate(st.session_state.editor_tasks):
+        st.markdown(f"#### 임무 {i+1}")
+
+        col1, col2, col3, col4, col5 = st.columns([4, 1.5, 1.5, 1.4, 1])
+
+        with col1:
+            st.text_input(
+                f"임무 내용 {i+1}",
+                value=task["task_name"],
+                placeholder="예: 고등 물리 숙제 완료하기",
+                key=f"task_name_{i}"
+            )
+
+        with col2:
+            current_start = task["start_time"] if task["start_time"] in time_options else "04:00"
+            start_index = time_options.index(current_start)
+
+            st.selectbox(
+                f"시작 {i+1}",
+                time_options[:-1],
+                index=start_index,
+                key=f"start_time_{i}"
+            )
+
+        with col3:
+            current_start_widget = st.session_state.get(f"start_time_{i}", current_start)
+            valid_end_times = [t for t in time_options if time_to_minutes(t) > time_to_minutes(current_start_widget)]
+            current_end = task["end_time"] if task["end_time"] in valid_end_times else valid_end_times[0]
+            end_index = valid_end_times.index(current_end)
+
+            st.selectbox(
+                f"종료 {i+1}",
+                valid_end_times,
+                index=end_index,
+                key=f"end_time_{i}"
+            )
+
+        with col4:
+            priority_options = ["상", "중", "하"]
+            priority_index = priority_options.index(task["priority"]) if task["priority"] in priority_options else 1
+
+            st.selectbox(
+                f"등급 {i+1}",
+                priority_options,
+                index=priority_index,
+                format_func=priority_label,
+                key=f"priority_{i}"
+            )
+
+        with col5:
+            st.checkbox(
+                "완료",
+                value=task["completed"],
+                key=f"completed_{i}"
+            )
+
+    sync_widget_values_to_editor_tasks()
+
+    tasks_data = []
+    for task in st.session_state.editor_tasks:
+        task_name = str(task.get("task_name", "")).strip()
+        start_time = task.get("start_time", "04:00")
+        end_time = task.get("end_time", "04:10")
+        priority = task.get("priority", "중")
+        completed = bool(task.get("completed", False))
+
+        if not task_name:
+            continue
+
+        if start_time not in time_options:
+            start_time = "04:00"
+        if end_time not in time_options:
+            end_time = "04:10"
+
+        if time_to_minutes(end_time) <= time_to_minutes(start_time):
+            start_index = time_options.index(start_time)
+            if start_index + 1 < len(time_options):
+                end_time = time_options[start_index + 1]
+            else:
+                end_time = "24:00"
+
+        if priority not in ["상", "중", "하"]:
+            priority = "중"
+
+        tasks_data.append({
+            "study_date": selected_date_str,
+            "task_name": task_name,
+            "start_time": start_time,
+            "end_time": end_time,
+            "priority": priority,
+            "completed": completed,
+        })
+
+    st.markdown("---")
+    st.markdown('<div class="section-title">🌀 오늘의 임무 요약</div>', unsafe_allow_html=True)
+
+    if tasks_data:
+        input_df = pd.DataFrame(tasks_data)
+        view_df = input_df.copy()
+        view_df["시간"] = view_df["start_time"] + " ~ " + view_df["end_time"]
+        view_df["등급"] = view_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
+        view_df["완료 여부"] = view_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
+        view_df = view_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
+        view_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
+
+        st.dataframe(view_df, use_container_width=True, hide_index=True)
+
+        total_tasks = len(input_df)
+        completed_tasks = int(input_df["completed"].sum())
+        remaining_tasks = total_tasks - completed_tasks
+        completion_rate = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">총 임무 수</div>
+                    <div class="metric-value">{total_tasks}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        with c2:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">완료한 임무</div>
+                    <div class="metric-value">{completed_tasks}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        with c3:
+            st.markdown(
+                f"""
+                <div class="metric-box">
+                    <div class="metric-title">남은 임무</div>
+                    <div class="metric-value">{remaining_tasks}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.markdown('<div class="section-title">⚡ 주술 에너지 충전율</div>', unsafe_allow_html=True)
+        st.progress(completion_rate / 100)
+        st.write(f"현재 에너지 충전율: **{completion_rate}%**")
+
+        st.markdown('<div class="section-title">🕒 시간표 형태 보기</div>', unsafe_allow_html=True)
+
+        schedule_rows = []
+        for idx in range(len(time_options) - 1):
+            slot_start = time_options[idx]
+            slot_end = time_options[idx + 1]
+            matched_tasks = []
+
+            for _, row in input_df.iterrows():
+                if (
+                    time_to_minutes(row["start_time"]) <= time_to_minutes(slot_start)
+                    and time_to_minutes(row["end_time"]) > time_to_minutes(slot_start)
+                ):
+                    status_icon = "✅" if row["completed"] else "⬜"
+                    matched_tasks.append(
+                        f"{status_icon} {priority_icon(row['priority'])} {row['task_name']}"
+                    )
+
+            schedule_rows.append({
+                "시간대": f"{slot_start} ~ {slot_end}",
+                "계획": " / ".join(matched_tasks) if matched_tasks else ""
+            })
+
+        schedule_df = pd.DataFrame(schedule_rows)
+        st.dataframe(schedule_df, use_container_width=True, hide_index=True)
+
+        if total_tasks > 0 and completed_tasks == total_tasks:
+            st.markdown(
+                f"""
+                <div class="reward-box">
+                    🎉 모든 임무 완수!<br>
+                    임무 보상 {reward_amount:,}원 획득
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.info(f"모든 임무를 완료하면 임무 보상 {reward_amount:,}원이 활성화돼.")
+
+        save_col, load_col = st.columns(2)
+
+        with save_col:
+            if st.button("💾 최종 상태로 저장"):
+                try:
+                    overwrite_tasks_to_supabase(selected_date_str, tasks_data)
+                    init_editor_for_date(selected_date_str)
+                    st.success("최종 상태 저장 완료. PC와 모바일 모두 같은 최신 상태를 보게 돼.")
+                    st.rerun()
+                except requests.HTTPError as e:
+                    detail = e.response.text if e.response is not None else str(e)
+                    st.error(f"저장 중 HTTP 오류: {detail}")
+                except Exception as e:
+                    st.error(f"저장 중 오류: {e}")
+
+        with load_col:
+            if st.button("📂 저장된 최종 데이터 보기"):
+                try:
+                    rows = load_tasks_from_supabase(selected_date_str)
+                    if rows:
+                        saved_df = pd.DataFrame(rows)
+                        saved_df["시간"] = saved_df["start_time"] + " ~ " + saved_df["end_time"]
+                        saved_df["등급"] = saved_df["priority"].apply(lambda x: f"{priority_icon(x)} {priority_label(x)}")
+                        saved_df["완료 여부"] = saved_df["completed"].apply(lambda x: "✅ 완료" if x else "⬜ 진행중")
+                        saved_df = saved_df[["study_date", "시간", "task_name", "등급", "완료 여부"]]
+                        saved_df.columns = ["날짜", "시간", "임무", "등급", "상태"]
+                        st.dataframe(saved_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("해당 날짜에 저장된 최종 데이터가 없어.")
+                except requests.HTTPError as e:
+                    detail = e.response.text if e.response is not None else str(e)
+                    st.error(f"조회 중 HTTP 오류: {detail}")
+                except Exception as e:
+                    st.error(f"조회 중 오류: {e}")
+    else:
+        st.warning("임무를 하나 이상 입력해줘.")
